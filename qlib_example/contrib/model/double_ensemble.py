@@ -142,25 +142,40 @@ class DEnsembleModel(Model, FeatureInt):
         """
         # normalize loss_curve and loss_values with ranking
         loss_curve_norm = loss_curve.rank(axis=0, pct=True)
+        #竖着rank 相当于对同一个T的不同sample的loss进行rank（只针对上一个子model）
+
         loss_values_norm = (-loss_values).rank(pct=True)
+        #对于现有的ensemble后的model的-loss针对不同sample进行rank 
+        #相当于按loss从大到小进行排列
+
 
         # calculate l_start and l_end from loss_curve
         N, T = loss_curve.shape
         part = np.maximum(int(T * 0.1), 1)
         l_start = loss_curve_norm.iloc[:, :part].mean(axis=1)
+        #训练前期loss各个行（sample）的loss平均
+
+
         l_end = loss_curve_norm.iloc[:, -part:].mean(axis=1)
+        #训练后期loss各个行（sample）的loss平均
 
         # calculate h-value for each sample
         h1 = loss_values_norm
         h2 = (l_end / l_start).rank(pct=True)
+        #若l_end小 l_start大 则整体小 证明后在此sample上提升很高
         h = pd.DataFrame({"h_value": self.alpha1 * h1 + self.alpha2 * h2})
+        #h代表着loss大+提升高则h小
 
         # calculate weights
         h["bins"] = pd.cut(h["h_value"], self.bins_sr)
+        #把原来的h_value进行离散化处理
         h_avg = h.groupby("bins")["h_value"].mean()
+        #得到属于每个bin类的所有sample的h的平均值
+
         weights = pd.Series(np.zeros(N, dtype=float))
         for i_b, b in enumerate(h_avg.index):
             weights[h["bins"] == b] = 1.0 / (self.decay ** k_th * h_avg[i_b] + 0.1)
+        #对于越后面的model 损失越多 越重视 h越小（之前训练的越有效果 没训练前loss越大的 sample所占比重越高）
         return weights
 
     def feature_selection(self, df_train, loss_values):
@@ -181,7 +196,9 @@ class DEnsembleModel(Model, FeatureInt):
         # shuffle specific columns and calculate g-value for each feature
         x_train_tmp = x_train.copy()
         for i_f, feat in enumerate(features):
+            #每次只换一个feature
             x_train_tmp.loc[:, feat] = np.random.permutation(x_train_tmp.loc[:, feat].values)
+            #x_train_tmp 每一列（即feature）进行随意调动 即针对某一个sample 他的feature是由其他sample的同一feature shuffle得到的（用的其他人的同一个feature的值）
             pred = pd.Series(np.zeros(N), index=x_train_tmp.index)
             for i_s, submodel in enumerate(self.ensemble):
                 pred += (
@@ -190,9 +207,13 @@ class DEnsembleModel(Model, FeatureInt):
                     )
                     / M
                 )
+            #把目前的ensemble后的model在随机组合后的x进行预测
             loss_feat = self.get_loss(y_train.values.squeeze(), pred.values)
+            #搅乱后的预测出来的结果与实际的偏差
             g.loc[i_f, "g_value"] = np.mean(loss_feat - loss_values) / (np.std(loss_feat - loss_values) + 1e-7)
+            #g_val针对两种预测（有没有列换）对于所有sample的loss的平均与std的比
             x_train_tmp.loc[:, feat] = x_train.loc[:, feat].copy()
+            #x_train_tmp再次换回来
 
         # one column in train features is all-nan # if g['g_value'].isna().any()
         g["g_value"].replace(np.nan, 0, inplace=True)
