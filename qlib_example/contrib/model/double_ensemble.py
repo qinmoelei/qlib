@@ -214,12 +214,17 @@ class DEnsembleModel(Model, FeatureInt):
             #g_val针对两种预测（有没有列换）对于所有sample的loss的平均与std的比
             x_train_tmp.loc[:, feat] = x_train.loc[:, feat].copy()
             #x_train_tmp再次换回来
+        #综上 完成上述循环， 我们可以对于每一个feature都得到一个g_value
+        #g_value描述了重要性 因为如果一个featuer较为重要， 那么我们在置换他的时候会对整体的结构有较大的影响 
 
         # one column in train features is all-nan # if g['g_value'].isna().any()
         g["g_value"].replace(np.nan, 0, inplace=True)
 
         # divide features into bins_fs bins
         g["bins"] = pd.cut(g["g_value"], self.bins_fs)
+
+        #离散化g值
+        #对于每一个不同bin 我们采取固定采样比例随机抽样
 
         # randomly sample features from bins to construct the new features
         res_feat = []
